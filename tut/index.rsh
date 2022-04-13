@@ -21,12 +21,14 @@ const Player = {
     ...hasRandom,
     getHand: Fun([], UInt),
     seeOutcome: Fun([UInt], Null),
+    informTimeout: Fun([], Null),
 };
 
 export const main = Reach.App(() => {
     const A = Participant('A', {
         ...Player,
         wager: UInt,
+        deadline: UInt,
     });
     const B = Participant('B', {
         ...Player,
@@ -34,13 +36,20 @@ export const main = Reach.App(() => {
     });
     init();
 
+    const informTimeout = () => {
+        each([A, B], () => {
+            interact.informTimeout();
+        });
+    };
+
     A.only(() => {
         const wager = declassify(interact.wager);
         const _handA = interact.getHand();
         const [_commitA, _saltA] = makeCommitment(interact, _handA);
         const commitA = declassify(_commitA);
+        const deadline = declassify(interact.deadline);
     });
-    A.publish(wager, commitA)
+    A.publish(wager, commitA, deadline)
         .pay(wager);
     commit();
 
@@ -50,20 +59,23 @@ export const main = Reach.App(() => {
         const handB = declassify(interact.getHand());
     });
     B.publish(handB)
-        .pay(wager);
+        .pay(wager)
+        .timeout(relativeTime(deadline), () => closeTo(A, informTimeout));
     commit();
 
     A.only(() => {
         const saltA = declassify(_saltA);
         const handA = declassify(_handA);
     });
-    A.publish(saltA, handA);
+    A.publish(saltA, handA)
+        .timeout(relativeTime(deadline), () => closeTo(B, informTimeout));
+
     checkCommitment(commitA, saltA, handA);
 
     const outcome = (handA + (4 - handB)) % 3;
     const [forA, forB] =
-        A_WINS ? [2, 0] :
-            B_WINS == 0 ? [0, 2] :
+        outcome == A_WINS ? [2, 0] :
+            outcome == B_WINS ? [0, 2] :
     /* tie      */[1, 1];
     transfer(forA * wager).to(A);
     transfer(forB * wager).to(B);
